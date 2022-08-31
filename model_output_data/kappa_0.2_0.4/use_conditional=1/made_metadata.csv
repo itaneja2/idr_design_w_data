@@ -1,0 +1,2 @@
+num_mean_singular_values,num_cov_singular_values,num_train_instances,num_test_instances,num_bootstrap_samples,dataset_info,use_conditional
+8,8,143400,51800,1000,kappa_0.2_0.4,True
