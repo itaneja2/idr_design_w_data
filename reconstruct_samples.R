@@ -232,6 +232,17 @@ for (d in all_output_dirs)
     
     pairwise_dist_cols_subset = pairwise_dist_cols[1:23]
     
+    atom_pair_merged_relevant = c()
+    
+    for (j in 1:(length(pairwise_dist_cols_subset)-1))
+    { 
+      for (k in (j+1):length(pairwise_dist_cols_subset))
+      {
+        atom_pair_id1 = as.character(pairwise_dist_cols[j])
+        atom_pair_id2 = as.character(pairwise_dist_cols[k])
+        atom_pair_merged_relevant = c(atom_pair_merged_relevant, paste(atom_pair_id1, atom_pair_id2, sep='-'))
+      }
+    } 
  
     for (i in 1:10)
     {
@@ -259,48 +270,42 @@ for (d in all_output_dirs)
       colnames(cov_reconstruction_long) = c('atom_id1', 'atom_id2', 'cov')
       cov_reconstruction_long$sample_num = i 
       
-      simulated_2d_pairwise_distances = data.frame()
+      mean_vec = c()
       
-      for (j in 1:(length(pairwise_dist_cols_subset)-1))
-      { 
-        #print(paste('j=',j))
-        for (k in (j+1):length(pairwise_dist_cols_subset))
-        {
-          atom_pair_id1 = as.character(pairwise_dist_cols[j])
-          atom_pair_id2 = as.character(pairwise_dist_cols[k])
-          
-          mean_atom_id1 = as.numeric(mean_reconstruction_long[which(mean_reconstruction_long$atom_pair_id == atom_pair_id1),]['mean'])
-          mean_atom_id2 = as.numeric(mean_reconstruction_long[which(mean_reconstruction_long$atom_pair_id == atom_pair_id2),]['mean'])
-          
-          cov_atom_id1 = as.numeric(cov_reconstruction_long[which((cov_reconstruction_long$atom_id1 == atom_pair_id1) & (cov_reconstruction_long$atom_id2 == atom_pair_id1)),]['cov'])
-          cov_atom_id2 = as.numeric(cov_reconstruction_long[which((cov_reconstruction_long$atom_id1 == atom_pair_id2) & (cov_reconstruction_long$atom_id2 == atom_pair_id2)),]['cov'])
-          cov_atom_id1_atom_id2 = as.numeric(cov_reconstruction_long[which((cov_reconstruction_long$atom_id1 == atom_pair_id1) & (cov_reconstruction_long$atom_id2 == atom_pair_id2)),]['cov'])
-          
-          cov_matrix = matrix(nrow=2,ncol=2)
-          cov_matrix[1,1] =  cov_atom_id1      
-          cov_matrix[2,2] =  cov_atom_id2         
-          cov_matrix[1,2] =  cov_atom_id1_atom_id2         
-          cov_matrix[2,1] =  cov_atom_id1_atom_id2         
-          
-          samples = rmvnorm(n=180, mean=c(mean_atom_id1,mean_atom_id2), sigma=cov_matrix)
-          out = data.frame(dist1 = samples[,1], dist2 = samples[,2], atom_pair_id1 = atom_pair_id1, atom_pair_id2 = atom_pair_id2)
-          simulated_2d_pairwise_distances = bind_rows(simulated_2d_pairwise_distances, out)
-        }
+      for (j in 1:ncol(cov_reconstruction)) 
+      {
+        res_1 = as.numeric(str_split(colnames(cov_reconstruction)[j], '_')[[1]][1])
+        res_2 = as.numeric(str_split(colnames(cov_reconstruction)[j], '_')[[1]][2])
+        
+        mean_vec = c(mean_vec, mean_reconstruction[res_1, res_2])
       }
       
-      simulated_2d_pairwise_distances$source = paste('gen_sample', i, sep='_')
-      simulated_2d_pairwise_distances$atom_pair_merged = paste(simulated_2d_pairwise_distances$atom_pair_id1, simulated_2d_pairwise_distances$atom_pair_id2, sep='-')
-      simulated_2d_pairwise_distances$atom_pair_id1 = factor(simulated_2d_pairwise_distances$atom_pair_id1, levels = pairwise_dist_cols_subset)
-      simulated_2d_pairwise_distances$atom_pair_id2 = factor(simulated_2d_pairwise_distances$atom_pair_id2, levels = pairwise_dist_cols_subset)
+      samples = rmvnorm(n=300, mean=mean_vec, sigma=cov_reconstruction)
+      colnames(samples) =  pairwise_dist_cols
+      samples_long1 = melt(samples) 
+      colnames(samples_long1) = c('sample_num', 'atom_pair_id1', 'dist1')
+      samples_long2 = samples_long1
+      colnames(samples_long2) = c('sample_num', 'atom_pair_id2', 'dist2')
       
+      samples_long_merged = samples_long1 %>% left_join(samples_long2, by = 'sample_num') %>% as.data.frame()
+  
+      samples_long_merged$atom_pair_merged = paste(samples_long_merged$atom_pair_id1, samples_long_merged$atom_pair_id2, sep='-')
+      samples_long_merged = samples_long_merged %>% filter(atom_pair_merged %in% atom_pair_merged_relevant) %>% as.data.frame()
+  
+      samples_long_merged$atom_pair_id1 = factor(samples_long_merged$atom_pair_id1, levels = pairwise_dist_cols_subset)
+      samples_long_merged$atom_pair_id2 = factor(samples_long_merged$atom_pair_id2, levels = pairwise_dist_cols_subset)
+      
+      #samples_long
+      
+     
       plot_save_dir = paste('/home/ishan/Lasker/idr_design/plots/simulated_2d_pairwise_distances/conditional_unseen_data', dataset_info, sep='/')
       dir.create(plot_save_dir, recursive = TRUE, showWarnings = FALSE)
       
+    
       plot_name = paste('gen_sample', i, sep='_')
-      print(ggplot(simulated_2d_pairwise_distances, aes(x = dist1, y = dist2)) + 
-              geom_point(alpha=.05) +
+      print(ggplot(samples_long_merged, aes(x = dist1, y = dist2)) + 
+              geom_point(alpha=.03) +
               labs(title = paste('Generated Sample', i), x = 'Distance', y = 'Distance') + 
-              scale_x_continuous(labels = function(x) format(x, scientific = TRUE)) + 
               guides(colour = guide_legend(override.aes = list(alpha=1))) +
               facet_grid(atom_pair_id1 ~ atom_pair_id2) + theme(text = element_text(size=14), axis.text.x = element_text(angle = 45, hjust = 1)))
       ggsave(paste(plot_save_dir, paste0(plot_name, '.png'), sep = '/'), width=12, height=12)
@@ -369,14 +374,15 @@ for (curr_seq in all_seq[seq(1, length(all_seq), 10)][27:196])
   pairwise_dist_long = pairwise_dist_long %>% filter(atom_pair_id %in% pairwise_dist_cols_subset) %>% as.data.frame()
   pairwise_dist_long = pairwise_dist_long %>% filter(frame_num %% 100 == 0) %>% as.data.frame()
   pairwise_dist_long = pairwise_dist_long %>% separate(col = atom_pair_id, into = c("atom_id1", "atom_id2"), sep = "_", remove=FALSE) %>% as.data.frame()
+  pairwise_dist_long$frame_num_rep_num = paste(pairwise_dist_long$frame_num, pairwise_dist_long$rep_num, sep = '_')
   
-  pairwise_dist_long1 = pairwise_dist_long[,c(1,3,6)]
-  pairwise_dist_long2 = pairwise_dist_long[,c(1,3,6)]
+  pairwise_dist_long1 = pairwise_dist_long[,c(7,3,6)]
+  pairwise_dist_long2 = pairwise_dist_long[,c(7,3,6)]
   
-  colnames(pairwise_dist_long1) = c('frame_num', 'atom_pair_id1', 'dist1')
-  colnames(pairwise_dist_long2) = c('frame_num', 'atom_pair_id2', 'dist2')
+  colnames(pairwise_dist_long1) = c('frame_num_rep_num', 'atom_pair_id1', 'dist1')
+  colnames(pairwise_dist_long2) = c('frame_num_rep_num', 'atom_pair_id2', 'dist2')
   
-  comparison_seq_2d_pairwise_distances = pairwise_dist_long1 %>% left_join(pairwise_dist_long2, by = 'frame_num') %>% as.data.frame()
+  comparison_seq_2d_pairwise_distances = pairwise_dist_long1 %>% left_join(pairwise_dist_long2, by = 'frame_num_rep_num') %>% as.data.frame()
   comparison_seq_2d_pairwise_distances = comparison_seq_2d_pairwise_distances %>% filter(atom_pair_id1 != atom_pair_id2) %>% as.data.frame()
   comparison_seq_2d_pairwise_distances = comparison_seq_2d_pairwise_distances[,c('dist1', 'dist2', 'atom_pair_id1', 'atom_pair_id2')]
   
@@ -392,11 +398,10 @@ for (curr_seq in all_seq[seq(1, length(all_seq), 10)][27:196])
   
   plot_name = seq_str
   print(ggplot(comparison_seq_2d_pairwise_distances, aes(x = dist1, y = dist2)) + 
-          geom_point(alpha=.01) +
+          geom_point(alpha=.03) +
           labs(title = seq_str, x = 'Distance', y = 'Distance') + 
-          scale_x_continuous(labels = function(x) format(x, scientific = TRUE)) + 
           guides(colour = guide_legend(override.aes = list(alpha=1))) +
-          facet_grid(atom_pair_id1 ~ atom_pair_id2) + theme(axis.text.x = element_text(angle = 45, hjust = 1)))
+          facet_grid(atom_pair_id1 ~ atom_pair_id2) + theme(text = element_text(size=14), axis.text.x = element_text(angle = 45, hjust = 1)))
   ggsave(paste(plot_save_dir, paste0(plot_name, '.png'), sep = '/'), width=12, height=12)
   
 }
